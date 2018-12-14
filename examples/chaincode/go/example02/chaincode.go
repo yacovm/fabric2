@@ -12,6 +12,8 @@ import (
 
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	pb "github.com/hyperledger/fabric/protos/peer"
+	"time"
+	"sync"
 )
 
 // SimpleChaincode example simple Chaincode implementation
@@ -127,6 +129,32 @@ func (t *SimpleChaincode) invoke(stub shim.ChaincodeStubInterface, args []string
 		return shim.Error(err.Error())
 	}
 
+	// This is instead of synchronization
+	time.Sleep(time.Second * 3)
+
+	// Send the other peer a message
+	otherPeer := "peer0.org1.example.com:7051"
+	if shim.PeerAddress == otherPeer {
+		otherPeer = "peer0.org2.example.com:7051"
+	}
+
+	// Wait until you receive 10 messages from the other peer
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		for i :=0; i < 10; i++ {
+			msg, from := stub.P2PRecv()
+			fmt.Println("Got message:", string(msg), "from", from)
+		}
+	}()
+
+	// Send 10 messages to the other peer
+	for i := 0; i < 10; i++ {
+		stub.P2PSend([]byte("bla bla"), otherPeer)
+	}
+	wg.Wait()
 	return shim.Success(nil)
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/pkg/errors"
+	"github.com/hyperledger/fabric/gossip/util"
 )
 
 type state string
@@ -38,6 +39,7 @@ func (handler *Handler) triggerNextState(msg *pb.ChaincodeMessage, errc chan err
 
 // Handler handler implementation for shim side of chaincode.
 type Handler struct {
+	fromPeers *util.PubSub
 	//need lock to protect chaincode from attempting
 	//concurrent requests to the peer
 	sync.Mutex
@@ -165,6 +167,7 @@ func (handler *Handler) deleteChannel(channelID, txid string) {
 // NewChaincodeHandler returns a new instance of the shim side handler.
 func newChaincodeHandler(peerChatStream PeerChaincodeStream, chaincode Chaincode) *Handler {
 	v := &Handler{
+		fromPeers: util.NewPubSub(),
 		ChatStream: peerChatStream,
 		cc:         chaincode,
 	}
@@ -745,6 +748,11 @@ func (handler *Handler) handleInvokeChaincode(chaincodeName string, args [][]byt
 //handle ready state
 func (handler *Handler) handleReady(msg *pb.ChaincodeMessage, errc chan error) error {
 	switch msg.Type {
+	case pb.ChaincodeMessage_GOSSIP_MESSAGE:
+		p2pMsg := &pb.P2PMessage{}
+		proto.Unmarshal(msg.Payload, p2pMsg)
+		handler.fromPeers.Publish(msg.Txid, p2pMsg)
+		return nil
 	case pb.ChaincodeMessage_RESPONSE:
 		if err := handler.sendChannel(msg); err != nil {
 			chaincodeLogger.Errorf("[%s] error sending %s (state:%s): %s", shorttxid(msg.Txid), msg.Type, handler.state, err)

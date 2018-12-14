@@ -29,6 +29,11 @@ type Chaincode interface {
 // ChaincodeStubInterface is used by deployable chaincode apps to access and
 // modify their ledgers
 type ChaincodeStubInterface interface {
+
+	P2PSend(payload []byte, to ... string)
+
+	P2PRecv() (payload []byte, from string)
+
 	// GetArgs returns the arguments intended for the chaincode Init and Invoke
 	// as an array of byte arrays.
 	GetArgs() [][]byte

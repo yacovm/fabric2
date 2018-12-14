@@ -32,6 +32,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
+	"github.com/hyperledger/fabric/gossip/util"
 )
 
 // Logger for the shim package.
@@ -51,6 +52,7 @@ const (
 // ChaincodeStub is an object passed to chaincode for shim side handling of
 // APIs.
 type ChaincodeStub struct {
+	sub util.Subscription
 	TxID                       string
 	ChannelId                  string
 	chaincodeEvent             *pb.ChaincodeEvent
@@ -69,7 +71,7 @@ type ChaincodeStub struct {
 }
 
 // Peer address derived from command line or env var
-var peerAddress string
+var PeerAddress string
 
 //this separates the chaincode stream interface establishment
 //so we can replace it with a mock peer stream
@@ -80,7 +82,7 @@ var streamGetter peerStreamGetter
 
 //the non-mock user CC stream establishment func
 func userChaincodeStreamGetter(name string) (PeerChaincodeStream, error) {
-	flag.StringVar(&peerAddress, "peer.address", "", "peer address")
+	flag.StringVar(&PeerAddress, "peer.address", "", "peer address")
 	if viper.GetBool("peer.tls.enabled") {
 		keyPath := viper.GetString("tls.client.key.path")
 		certPath := viper.GetString("tls.client.cert.path")
@@ -293,15 +295,15 @@ func StartInProc(env []string, args []string, cc Chaincode, recv <-chan *pb.Chai
 }
 
 func getPeerAddress() string {
-	if peerAddress != "" {
-		return peerAddress
+	if PeerAddress != "" {
+		return PeerAddress
 	}
 
-	if peerAddress = viper.GetString("peer.address"); peerAddress == "" {
+	if PeerAddress = viper.GetString("peer.address"); PeerAddress == "" {
 		chaincodeLogger.Fatalf("peer.address not configured, can't connect to peer")
 	}
 
-	return peerAddress
+	return PeerAddress
 }
 
 func newPeerClientConnection() (*grpc.ClientConn, error) {
@@ -398,6 +400,8 @@ func (stub *ChaincodeStub) init(handler *Handler, channelId string, txid string,
 	stub.decorations = input.Decorations
 	stub.validationParameterMetakey = pb.MetaDataKeys_VALIDATION_PARAMETER.String()
 
+	stub.sub = stub.handler.fromPeers.Subscribe(stub.TxID, time.Hour)
+
 	// TODO: sanity check: verify that every call to init with a nil
 	// signedProposal is a legitimate one, meaning it is an internal call
 	// to system chaincodes.
@@ -447,6 +451,24 @@ func (stub *ChaincodeStub) InvokeChaincode(chaincodeName string, args [][]byte, 
 		chaincodeName = chaincodeName + "/" + channel
 	}
 	return stub.handler.handleInvokeChaincode(chaincodeName, args, stub.ChannelId, stub.TxID)
+}
+
+func (stub *ChaincodeStub) P2PRecv() (payload []byte, from string) {
+	msg, _ := stub.sub.Listen()
+	p2pMsg := msg.(*pb.P2PMessage)
+	return p2pMsg.Payload, p2pMsg.Endpoints[0]
+}
+
+func (stub *ChaincodeStub) P2PSend(payload []byte, peers ... string) {
+	stub.handler.serialSend(&pb.ChaincodeMessage{
+		Payload: utils.MarshalOrPanic(&pb.P2PMessage{
+			Payload: payload,
+			Endpoints: peers,
+		}),
+		Txid: stub.TxID,
+		ChannelId: stub.GetChannelID(),
+		Type: pb.ChaincodeMessage_GOSSIP_MESSAGE,
+	})
 }
 
 // --------- State functions ----------
