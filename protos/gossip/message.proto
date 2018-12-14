@@ -130,7 +130,15 @@ message GossipMessage {
         // Encapsulates private data used to distribute
         // private rwset after the endorsement
         PrivateDataMessage private_data = 25;
+
+        ApplicationMessage application_msg = 26;
     }
+}
+
+message ApplicationMessage {
+    string application = 1;
+    string topic = 2;
+    bytes payload = 3;
 }
 
 // StateInfo is used for a peer to relay its state information
