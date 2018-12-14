@@ -16,7 +16,7 @@ import (
 type HandlerRegistry struct {
 	allowUnsolicitedRegistration bool // from cs.userRunsCC
 
-	mutex     sync.Mutex              // lock covering handlers and launching
+	mutex     sync.RWMutex              // lock covering handlers and launching
 	handlers  map[string]*Handler     // chaincode cname to associated handler
 	launching map[string]*LaunchState // launching chaincodes to LaunchState
 }

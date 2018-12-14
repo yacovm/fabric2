@@ -21,6 +21,9 @@ import (
 	"github.com/hyperledger/fabric/core/peer"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/pkg/errors"
+	"github.com/hyperledger/fabric/gossip/comm"
+	"github.com/hyperledger/fabric/protos/gossip"
+	"github.com/hyperledger/fabric/protos/utils"
 )
 
 // Runtime is used to manage chaincode runtime instances.
@@ -43,8 +46,13 @@ type Lifecycle interface {
 	ChaincodeContainerInfo(chaincodeName string, qe ledger.QueryExecutor) (*ccprovider.ChaincodeContainerInfo, error)
 }
 
+type Sender interface {
+	Send(msg *gossip.GossipMessage, peers ...*comm.RemotePeer)
+}
+
 // ChaincodeSupport responsible for providing interfacing with chaincodes from the Peer.
 type ChaincodeSupport struct {
+	Sender Sender
 	Keepalive        time.Duration
 	ExecuteTimeout   time.Duration
 	UserRunsCC       bool
@@ -61,6 +69,7 @@ type ChaincodeSupport struct {
 
 // NewChaincodeSupport creates a new ChaincodeSupport instance.
 func NewChaincodeSupport(
+	sender Sender,
 	config *Config,
 	peerAddress string,
 	userRunsCC bool,
@@ -76,6 +85,7 @@ func NewChaincodeSupport(
 	metricsProvider metrics.Provider,
 ) *ChaincodeSupport {
 	cs := &ChaincodeSupport{
+		Sender: sender,
 		UserRunsCC:       userRunsCC,
 		Keepalive:        config.Keepalive,
 		ExecuteTimeout:   config.ExecuteTimeout,
@@ -129,6 +139,30 @@ func (cs *ChaincodeSupport) LaunchInit(ccci *ccprovider.ChaincodeContainerInfo) 
 	return cs.Launcher.Launch(ccci)
 }
 
+func (cs *ChaincodeSupport) ForwardMessage(appMsg *gossip.GossipMessage, from string) {
+	cs.HandlerRegistry.mutex.RLock()
+	defer cs.HandlerRegistry.mutex.RUnlock()
+
+	for _, h := range cs.HandlerRegistry.handlers {
+		txCtxt := h.TXContexts.Get(string(appMsg.Channel), appMsg.GetApplicationMsg().Topic)
+		if txCtxt == nil {
+			fmt.Println("txID", appMsg.GetApplicationMsg().Topic, "isn't in flight")
+			return
+		}
+		fmt.Println("Forwarding message from", from, "on context of", appMsg.GetApplicationMsg().Topic)
+		h.serialSend(&pb.ChaincodeMessage{
+			Txid: appMsg.GetApplicationMsg().Topic,
+			Payload: utils.MarshalOrPanic(&pb.P2PMessage{
+				Payload: appMsg.GetApplicationMsg().Payload,
+				Endpoints: []string{from},
+			}),
+			Type: pb.ChaincodeMessage_GOSSIP_MESSAGE,
+			ChannelId: string(appMsg.Channel),
+		})
+	}
+
+}
+
 // Launch starts executing chaincode if it is not already running. This method
 // blocks until the peer side handler gets into ready state or encounters a fatal
 // error. If the chaincode is already running, it simply returns.
@@ -170,6 +204,7 @@ func (cs *ChaincodeSupport) Stop(ccci *ccprovider.ChaincodeContainerInfo) error 
 // HandleChaincodeStream implements ccintf.HandleChaincodeStream for all vms to call with appropriate stream
 func (cs *ChaincodeSupport) HandleChaincodeStream(stream ccintf.ChaincodeStream) error {
 	handler := &Handler{
+		Sender: cs.Sender,
 		Invoker:                    cs,
 		DefinitionGetter:           cs.Lifecycle,
 		Keepalive:                  cs.Keepalive,

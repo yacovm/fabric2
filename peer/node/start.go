@@ -86,6 +86,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
+	gossip2 "github.com/hyperledger/fabric/protos/gossip"
+	comm2 "github.com/hyperledger/fabric/gossip/comm"
+	gossip3 "github.com/hyperledger/fabric/gossip/gossip"
+	discovery2 "github.com/hyperledger/fabric/gossip/discovery"
 )
 
 const (
@@ -250,9 +254,6 @@ func serve(args []string) error {
 	abServer := peer.NewDeliverEventsServer(mutualTLS, policyCheckerProvider, &peer.DeliverChainManager{}, metricsProvider)
 	pb.RegisterDeliverServer(peerServer.Server(), abServer)
 
-	// Initialize chaincode service
-	chaincodeSupport, ccp, sccp, packageProvider := startChaincodeServer(peerHost, aclProvider, pr, opsSystem)
-
 	logger.Debugf("Running peer")
 
 	// Start the Admin server
@@ -273,6 +274,27 @@ func serve(args []string) error {
 		return errors.WithMessage(err, "could not load YAML config")
 	}
 	reg := library.InitRegistry(libConf)
+
+
+
+	policyMgr := peer.NewChannelPolicyManagerGetter()
+
+	// Initialize gossip component
+	err = initGossipService(policyMgr, peerServer, serializedIdentity, peerEndpoint.Address)
+	if err != nil {
+		return err
+	}
+	defer service.GetGossipService().Stop()
+
+	// register prover grpc service
+	err = registerProverService(peerServer, aclProvider, signingIdentity)
+	if err != nil {
+		return err
+	}
+
+
+	// Initialize chaincode service
+	chaincodeSupport, ccp, sccp, packageProvider := startChaincodeServer(peerHost, aclProvider, pr, opsSystem)
 
 	authFilters := reg.Lookup(library.Auth).([]authHandler.Filter)
 	endorserSupport := &endorser.SupportImpl{
@@ -296,24 +318,12 @@ func serve(args []string) error {
 	})
 	endorserSupport.PluginEndorser = pluginEndorser
 	serverEndorser := endorser.NewEndorserServer(privDataDist, endorserSupport, pr)
+
+
+
 	auth := authHandler.ChainFilters(serverEndorser, authFilters...)
 	// Register the Endorser server
 	pb.RegisterEndorserServer(peerServer.Server(), auth)
-
-	policyMgr := peer.NewChannelPolicyManagerGetter()
-
-	// Initialize gossip component
-	err = initGossipService(policyMgr, peerServer, serializedIdentity, peerEndpoint.Address)
-	if err != nil {
-		return err
-	}
-	defer service.GetGossipService().Stop()
-
-	// register prover grpc service
-	err = registerProverService(peerServer, aclProvider, signingIdentity)
-	if err != nil {
-		return err
-	}
 
 	// initialize system chaincodes
 
@@ -647,7 +657,9 @@ func registerChaincodeSupport(
 		logger.Panicf("failed to register docker health check: %s", err)
 	}
 
-	chaincodeSupport := chaincode.NewChaincodeSupport(
+	gossip := service.GetGossipService()
+	p2p := &p2pMgr{g: gossip}
+	chaincodeSupport := chaincode.NewChaincodeSupport(p2p,
 		chaincode.GlobalConfig(),
 		ccEndpoint,
 		userRunsCC,
@@ -667,6 +679,8 @@ func registerChaincodeSupport(
 		peer.DefaultSupport,
 		ops.Provider,
 	)
+	p2p.ccs = chaincodeSupport
+	go p2p.forwardMessages()
 	ipRegistry.ChaincodeSupport = chaincodeSupport
 	ccp := chaincode.NewProvider(chaincodeSupport)
 
@@ -916,4 +930,42 @@ func registerProverService(peerServer *comm.GRPCServer, aclProvider aclmgmt.ACLP
 	}
 	token.RegisterProverServer(peerServer.Server(), prover)
 	return nil
+}
+
+type p2pMgr struct {
+	g service.GossipService
+	ccs *chaincode.ChaincodeSupport
+}
+
+func (p2p *p2pMgr) forwardMessages() {
+	_, fromPeers := p2p.g.Accept(func(o interface{}) bool {
+		gMsg, isGossipMsg := o.(gossip2.ReceivedMessage)
+		if !isGossipMsg {
+			return false
+		}
+		appMsg := gMsg.GetGossipMessage().GetApplicationMsg()
+		if appMsg == nil {
+			return false
+		}
+		fmt.Println(">>>> message for", appMsg.Topic, "from", gMsg.GetConnectionInfo().Endpoint)
+		return true
+	}, true)
+
+	for msg := range fromPeers {
+		p2p.ccs.ForwardMessage(msg.GetGossipMessage().GossipMessage, msg.GetConnectionInfo().Endpoint)
+	}
+}
+
+func (p2p *p2pMgr) Send(msg *gossip2.GossipMessage, peers ...*comm2.RemotePeer) {
+	sMsg, _ := msg.NoopSign()
+	p2p.g.SendByCriteria(sMsg, gossip3.SendCriteria{
+		IsEligible: func(member discovery2.NetworkMember) bool {
+			for _, peer := range peers {
+				if peer.Endpoint == member.Endpoint || peer.Endpoint == member.InternalEndpoint {
+					return true
+				}
+			}
+			return false
+		},
+	})
 }

@@ -29,6 +29,8 @@ import (
 	"github.com/hyperledger/fabric/protos/common"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/pkg/errors"
+	"github.com/hyperledger/fabric/protos/gossip"
+	"github.com/hyperledger/fabric/gossip/comm"
 )
 
 var chaincodeLogger = flogging.MustGetLogger("chaincode")
@@ -119,6 +121,7 @@ type ApplicationConfigRetriever interface {
 
 // Handler implements the peer side of the chaincode stream.
 type Handler struct {
+	Sender Sender
 	// Keepalive specifies the interval at which keep-alive messages are sent.
 	Keepalive time.Duration
 	// SystemCCVersion specifies the current system chaincode version
@@ -202,7 +205,8 @@ func (h *Handler) handleMessageReadyState(msg *pb.ChaincodeMessage) error {
 	switch msg.Type {
 	case pb.ChaincodeMessage_COMPLETED, pb.ChaincodeMessage_ERROR:
 		h.Notify(msg)
-
+	case pb.ChaincodeMessage_GOSSIP_MESSAGE:
+		h.sendMsg(msg)
 	case pb.ChaincodeMessage_PUT_STATE:
 		go h.HandleTransaction(msg, h.HandlePutState)
 	case pb.ChaincodeMessage_DEL_STATE:
@@ -232,6 +236,26 @@ func (h *Handler) handleMessageReadyState(msg *pb.ChaincodeMessage) error {
 	}
 
 	return nil
+}
+
+func (h *Handler) sendMsg(msg *pb.ChaincodeMessage) {
+	var remotePeers []*comm.RemotePeer
+	p2pMsg := &pb.P2PMessage{}
+	proto.Unmarshal(msg.Payload, p2pMsg)
+
+	for _, endpoint := range p2pMsg.Endpoints {
+		remotePeers = append(remotePeers, &comm.RemotePeer{Endpoint: endpoint})
+	}
+
+	h.Sender.Send(&gossip.GossipMessage{
+		Content: &gossip.GossipMessage_ApplicationMsg{
+			ApplicationMsg: &gossip.ApplicationMessage{
+				Payload: p2pMsg.Payload,
+				Topic: msg.Txid,
+				Application: "chaincode",
+			},
+		},
+	}, remotePeers ...)
 }
 
 type MessageHandler interface {

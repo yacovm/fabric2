@@ -38,6 +38,7 @@ message ChaincodeMessage {
         GET_HISTORY_FOR_KEY = 19;
         GET_STATE_METADATA = 20;
         PUT_STATE_METADATA = 21;
+        GOSSIP_MESSAGE = 22;
     }
 
     Type type = 1;
@@ -171,6 +172,11 @@ message StateMetadata {
 
 message StateMetadataResult {
     repeated StateMetadata entries = 1;
+}
+
+message P2PMessage {
+    repeated string endpoints = 1;
+    bytes payload = 2;
 }
 
 // Interface that provides support to chaincode execution. ChaincodeContext
