@@ -456,10 +456,13 @@ func (stub *ChaincodeStub) InvokeChaincode(chaincodeName string, args [][]byte, 
 func (stub *ChaincodeStub) P2PRecv() (payload []byte, from string) {
 	msg, _ := stub.sub.Listen()
 	p2pMsg := msg.(*pb.P2PMessage)
-	return p2pMsg.Payload, p2pMsg.Endpoints[0]
+	payload, from = p2pMsg.Payload, p2pMsg.Endpoints[0]
+	fmt.Println("Got", payload, "from", from)
+	return
 }
 
 func (stub *ChaincodeStub) P2PSend(payload []byte, peers ... string) {
+	fmt.Println("P2PSend", string(payload), peers)
 	stub.handler.serialSend(&pb.ChaincodeMessage{
 		Payload: utils.MarshalOrPanic(&pb.P2PMessage{
 			Payload: payload,

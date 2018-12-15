@@ -464,22 +464,36 @@ func ChaincodeInvokeOrQuery(
 	if err != nil {
 		return nil, errors.WithMessage(err, fmt.Sprintf("error creating signed proposal for %s", funcName))
 	}
-	var responses []*pb.ProposalResponse
+	var wg sync.WaitGroup
+	wg.Add(len(endorserClients))
+	responses := make(chan *pb.ProposalResponse, len(endorserClients))
 	for _, endorser := range endorserClients {
-		proposalResp, err := endorser.ProcessProposal(context.Background(), signedProp)
-		if err != nil {
-			return nil, errors.WithMessage(err, fmt.Sprintf("error endorsing %s", funcName))
-		}
-		responses = append(responses, proposalResp)
+		go func(endorser pb.EndorserClient) {
+			defer wg.Done()
+			proposalResp, err := endorser.ProcessProposal(context.Background(), signedProp)
+			if err != nil {
+				logger.Panicf("Failed endorsing proposal: %v", err)
+			}
+			responses <- proposalResp
+		}(endorser)
 	}
+
+	wg.Wait()
 
 	if len(responses) == 0 {
 		// this should only happen if some new code has introduced a bug
 		return nil, errors.New("no proposal responses received - this might indicate a bug")
 	}
+	close(responses)
+	
+	var responseArr []*pb.ProposalResponse
+	for resp := range responses {
+		responseArr = append(responseArr, resp)
+	}
+
 	// all responses will be checked when the signed transaction is created.
 	// for now, just set this so we check the first response's status
-	proposalResp := responses[0]
+	proposalResp :=  responseArr[0]
 
 	if invoke {
 		if proposalResp != nil {
@@ -487,7 +501,7 @@ func ChaincodeInvokeOrQuery(
 				return proposalResp, nil
 			}
 			// assemble a signed transaction (it's an Envelope message)
-			env, err := putils.CreateSignedTx(prop, signer, responses...)
+			env, err := putils.CreateSignedTx(prop, signer, responseArr...)
 			if err != nil {
 				return proposalResp, errors.WithMessage(err, "could not assemble transaction")
 			}

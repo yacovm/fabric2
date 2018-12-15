@@ -338,6 +338,7 @@ func (d *gossipDiscoveryImpl) handleMsgFromComm(msg proto.ReceivedMessage) {
 		}
 
 		if !d.crypt.ValidateAliveMsg(selfInfoGossipMsg) {
+			fmt.Println("ERROR: FAILED validating message!")
 			return
 		}
 

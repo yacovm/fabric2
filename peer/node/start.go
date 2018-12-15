@@ -952,6 +952,8 @@ func (p2p *p2pMgr) forwardMessages() {
 	}, true)
 
 	for msg := range fromPeers {
+		fmt.Println("Got message from", msg.GetConnectionInfo().Endpoint)
+		msg.Ack(nil)
 		p2p.ccs.ForwardMessage(msg.GetGossipMessage().GossipMessage, msg.GetConnectionInfo().Endpoint)
 	}
 }
@@ -959,6 +961,8 @@ func (p2p *p2pMgr) forwardMessages() {
 func (p2p *p2pMgr) Send(msg *gossip2.GossipMessage, peers ...*comm2.RemotePeer) {
 	sMsg, _ := msg.NoopSign()
 	p2p.g.SendByCriteria(sMsg, gossip3.SendCriteria{
+		Timeout: time.Second * 3,
+		MaxPeers: 100,
 		IsEligible: func(member discovery2.NetworkMember) bool {
 			for _, peer := range peers {
 				if peer.Endpoint == member.Endpoint || peer.Endpoint == member.InternalEndpoint {

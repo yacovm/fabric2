@@ -307,8 +307,9 @@ func (g *gossipServiceImpl) start() {
 		isConn := gMsg.GetGossipMessage().GetConn() != nil
 		isEmpty := gMsg.GetGossipMessage().GetEmpty() != nil
 		isPrivateData := gMsg.GetGossipMessage().IsPrivateDataMsg()
+		isAppMsg := gMsg.GetGossipMessage().GetApplicationMsg() != nil
 
-		return !(isConn || isEmpty || isPrivateData)
+		return !(isConn || isEmpty || isPrivateData || isAppMsg)
 	}
 
 	incMsgs := g.comm.Accept(msgSelector)
@@ -622,6 +623,7 @@ func (g *gossipServiceImpl) SendByCriteria(msg *proto.SignedGossipMessage, crite
 	}
 
 	membership := g.disc.GetMembership()
+	fmt.Println("know about", len(membership), "peers:", membership)
 
 	if len(criteria.Channel) > 0 {
 		gc := g.chanState.getGossipChannelByChainID(criteria.Channel)
@@ -635,6 +637,8 @@ func (g *gossipServiceImpl) SendByCriteria(msg *proto.SignedGossipMessage, crite
 	if len(peers2send) < criteria.MinAck {
 		return fmt.Errorf("Requested to send to at least %d peers, but know only of %d suitable peers", criteria.MinAck, len(peers2send))
 	}
+
+	fmt.Println("SendByCriteria: Sending to", len(peers2send), "peers")
 
 	results := g.comm.SendWithAck(msg, criteria.Timeout, criteria.MinAck, peers2send...)
 
@@ -1005,7 +1009,7 @@ func (sa *discoverySecurityAdapter) ValidateAliveMsg(m *proto.SignedGossipMessag
 		claimedPKIID := am.Membership.PkiId
 		err := sa.idMapper.Put(claimedPKIID, identity)
 		if err != nil {
-			sa.logger.Debugf("Failed validating identity of %v reason: %+v", am, errors.WithStack(err))
+			sa.logger.Warningf("Failed validating identity of %v reason: %+v", am, errors.WithStack(err))
 			return false
 		}
 	} else {
@@ -1016,7 +1020,7 @@ func (sa *discoverySecurityAdapter) ValidateAliveMsg(m *proto.SignedGossipMessag
 	}
 
 	if identity == nil {
-		sa.logger.Debug("Don't have certificate for", am)
+		sa.logger.Warningf("Don't have certificate for", am)
 		return false
 	}
 

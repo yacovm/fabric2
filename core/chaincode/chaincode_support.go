@@ -146,8 +146,7 @@ func (cs *ChaincodeSupport) ForwardMessage(appMsg *gossip.GossipMessage, from st
 	for _, h := range cs.HandlerRegistry.handlers {
 		txCtxt := h.TXContexts.Get(string(appMsg.Channel), appMsg.GetApplicationMsg().Topic)
 		if txCtxt == nil {
-			fmt.Println("txID", appMsg.GetApplicationMsg().Topic, "isn't in flight")
-			return
+			continue
 		}
 		fmt.Println("Forwarding message from", from, "on context of", appMsg.GetApplicationMsg().Topic)
 		h.serialSend(&pb.ChaincodeMessage{
@@ -159,8 +158,9 @@ func (cs *ChaincodeSupport) ForwardMessage(appMsg *gossip.GossipMessage, from st
 			Type: pb.ChaincodeMessage_GOSSIP_MESSAGE,
 			ChannelId: string(appMsg.Channel),
 		})
+		return
 	}
-
+	fmt.Println("txID", appMsg.GetApplicationMsg().Topic, ", channel", string(appMsg.Channel), "isn't in flight")
 }
 
 // Launch starts executing chaincode if it is not already running. This method

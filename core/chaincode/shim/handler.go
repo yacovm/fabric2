@@ -751,6 +751,7 @@ func (handler *Handler) handleReady(msg *pb.ChaincodeMessage, errc chan error) e
 	case pb.ChaincodeMessage_GOSSIP_MESSAGE:
 		p2pMsg := &pb.P2PMessage{}
 		proto.Unmarshal(msg.Payload, p2pMsg)
+		fmt.Println("handleReady: Got message", p2pMsg, "from", msg)
 		handler.fromPeers.Publish(msg.Txid, p2pMsg)
 		return nil
 	case pb.ChaincodeMessage_RESPONSE:

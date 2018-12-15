@@ -130,13 +130,14 @@ func (t *SimpleChaincode) invoke(stub shim.ChaincodeStubInterface, args []string
 	}
 
 	// This is instead of synchronization
-	time.Sleep(time.Second * 3)
+	time.Sleep(time.Second * 10)
 
 	// Send the other peer a message
 	otherPeer := "peer0.org1.example.com:7051"
-	if shim.PeerAddress == otherPeer {
+	if shim.PeerAddress == "peer0.org1.example.com:7052" {
 		otherPeer = "peer0.org2.example.com:7051"
 	}
+	fmt.Println("Sending to", otherPeer)
 
 	// Wait until you receive 10 messages from the other peer
 	var wg sync.WaitGroup
@@ -154,6 +155,7 @@ func (t *SimpleChaincode) invoke(stub shim.ChaincodeStubInterface, args []string
 	for i := 0; i < 10; i++ {
 		stub.P2PSend([]byte("bla bla"), otherPeer)
 	}
+	fmt.Println("Waiting for receive...")
 	wg.Wait()
 	return shim.Success(nil)
 }
