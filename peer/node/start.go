@@ -658,7 +658,7 @@ func registerChaincodeSupport(
 	}
 
 	gossip := service.GetGossipService()
-	p2p := &p2pMgr{g: gossip}
+	p2p := &p2pMgr{g: gossip, queue: make(chan gossip2.ReceivedMessage, 100)}
 	chaincodeSupport := chaincode.NewChaincodeSupport(p2p,
 		chaincode.GlobalConfig(),
 		ccEndpoint,
@@ -680,6 +680,7 @@ func registerChaincodeSupport(
 		ops.Provider,
 	)
 	p2p.ccs = chaincodeSupport
+	go p2p.listenToMessages()
 	go p2p.forwardMessages()
 	ipRegistry.ChaincodeSupport = chaincodeSupport
 	ccp := chaincode.NewProvider(chaincodeSupport)
@@ -935,9 +936,16 @@ func registerProverService(peerServer *comm.GRPCServer, aclProvider aclmgmt.ACLP
 type p2pMgr struct {
 	g service.GossipService
 	ccs *chaincode.ChaincodeSupport
+	queue chan gossip2.ReceivedMessage
 }
 
 func (p2p *p2pMgr) forwardMessages() {
+	for msg := range p2p.queue {
+		p2p.ccs.ForwardMessage(msg.GetGossipMessage().GossipMessage, msg.GetConnectionInfo().Endpoint)
+	}
+}
+
+func (p2p *p2pMgr) listenToMessages() {
 	_, fromPeers := p2p.g.Accept(func(o interface{}) bool {
 		gMsg, isGossipMsg := o.(gossip2.ReceivedMessage)
 		if !isGossipMsg {
@@ -954,12 +962,13 @@ func (p2p *p2pMgr) forwardMessages() {
 	for msg := range fromPeers {
 		fmt.Println("Got message from", msg.GetConnectionInfo().Endpoint)
 		msg.Ack(nil)
-		p2p.ccs.ForwardMessage(msg.GetGossipMessage().GossipMessage, msg.GetConnectionInfo().Endpoint)
+		p2p.queue <- msg
 	}
 }
 
 func (p2p *p2pMgr) Send(msg *gossip2.GossipMessage, peers ...*comm2.RemotePeer) {
 	sMsg, _ := msg.NoopSign()
+	t1 := time.Now()
 	p2p.g.SendByCriteria(sMsg, gossip3.SendCriteria{
 		Timeout: time.Second * 3,
 		MaxPeers: 100,
@@ -972,4 +981,5 @@ func (p2p *p2pMgr) Send(msg *gossip2.GossipMessage, peers ...*comm2.RemotePeer) 
 			return false
 		},
 	})
+	fmt.Println("SendByCriteria took", time.Since(t1))
 }

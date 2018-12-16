@@ -14,6 +14,7 @@ import (
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/pkg/errors"
 	"github.com/hyperledger/fabric/gossip/util"
+	"time"
 )
 
 type state string
@@ -67,9 +68,9 @@ func shorttxid(txid string) string {
 func (handler *Handler) serialSend(msg *pb.ChaincodeMessage) error {
 	handler.serialLock.Lock()
 	defer handler.serialLock.Unlock()
-
+	t1 := time.Now()
 	err := handler.ChatStream.Send(msg)
-
+	fmt.Println("Send() of", len(msg.Payload), "bytes, took", time.Since(t1))
 	return err
 }
 
@@ -751,7 +752,6 @@ func (handler *Handler) handleReady(msg *pb.ChaincodeMessage, errc chan error) e
 	case pb.ChaincodeMessage_GOSSIP_MESSAGE:
 		p2pMsg := &pb.P2PMessage{}
 		proto.Unmarshal(msg.Payload, p2pMsg)
-		fmt.Println("handleReady: Got message", p2pMsg, "from", msg)
 		handler.fromPeers.Publish(msg.Txid, p2pMsg)
 		return nil
 	case pb.ChaincodeMessage_RESPONSE:

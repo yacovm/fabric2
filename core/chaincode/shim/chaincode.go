@@ -457,12 +457,12 @@ func (stub *ChaincodeStub) P2PRecv() (payload []byte, from string) {
 	msg, _ := stub.sub.Listen()
 	p2pMsg := msg.(*pb.P2PMessage)
 	payload, from = p2pMsg.Payload, p2pMsg.Endpoints[0]
-	fmt.Println("Got", payload, "from", from)
+	fmt.Println("Got", len(payload), " bytes from", from)
 	return
 }
 
 func (stub *ChaincodeStub) P2PSend(payload []byte, peers ... string) {
-	fmt.Println("P2PSend", string(payload), peers)
+	fmt.Println("P2PSend", len(payload), "bytes", peers)
 	stub.handler.serialSend(&pb.ChaincodeMessage{
 		Payload: utils.MarshalOrPanic(&pb.P2PMessage{
 			Payload: payload,

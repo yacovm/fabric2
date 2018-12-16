@@ -45,6 +45,10 @@ func (aso *ackSendOperation) send(msg *proto.SignedGossipMessage, minAckNum int,
 			}
 		}(p)
 	}
+	if minAckNum == 0 {
+		return nil
+	}
+	// Else, we need at least 1 ack
 	for {
 		ack := <-acks
 		results = append(results, SendResult{

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	subscriptionBuffSize = 50
+	subscriptionBuffSize = 5000
 )
 
 // PubSub defines a struct that one can use to:

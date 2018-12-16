@@ -13,7 +13,9 @@ import (
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"time"
+	"sync/atomic"
 	"sync"
+	"bytes"
 )
 
 // SimpleChaincode example simple Chaincode implementation
@@ -129,9 +131,6 @@ func (t *SimpleChaincode) invoke(stub shim.ChaincodeStubInterface, args []string
 		return shim.Error(err.Error())
 	}
 
-	// This is instead of synchronization
-	time.Sleep(time.Second * 10)
-
 	// Send the other peer a message
 	otherPeer := "peer0.org1.example.com:7051"
 	if shim.PeerAddress == "peer0.org1.example.com:7052" {
@@ -139,25 +138,55 @@ func (t *SimpleChaincode) invoke(stub shim.ChaincodeStubInterface, args []string
 	}
 	fmt.Println("Sending to", otherPeer)
 
-	// Wait until you receive 10 messages from the other peer
+
+	var synchronized uint64
+	go func() {
+		for atomic.LoadUint64(&synchronized) == 0 {
+			stub.P2PSend([]byte{0}, otherPeer)
+			time.Sleep(time.Millisecond * 10)
+		}
+	}()
+	stub.P2PRecv()
+	stub.P2PSend([]byte{0}, otherPeer)
+	stub.P2PRecv()
+	atomic.StoreUint64(&synchronized, 1)
+
+
+	round(stub, otherPeer)
+	round(stub, otherPeer)
+	round(stub, otherPeer)
+	round(stub, otherPeer)
+	round(stub, otherPeer)
+	round(stub, otherPeer)
+
+	return shim.Success(nil)
+}
+
+func round(stub shim.ChaincodeStubInterface, otherPeer string) {
+	t1 := time.Now()
 	var wg sync.WaitGroup
 	wg.Add(1)
 
 	go func() {
 		defer wg.Done()
-		for i :=0; i < 10; i++ {
+		var count int
+		for count < 100 {
 			msg, from := stub.P2PRecv()
-			fmt.Println("Got message:", string(msg), "from", from)
+			if bytes.Equal([]byte{0}, msg) {
+				continue
+			}
+			count++
+			fmt.Println("Got message of size", len(msg), "from", from)
 		}
 	}()
 
-	// Send 10 messages to the other peer
-	for i := 0; i < 10; i++ {
-		stub.P2PSend([]byte("bla bla"), otherPeer)
+	// Send 100 messages to the other peer
+	for i := 0; i < 100; i++ {
+		buff := make([]byte, 1024 * 100)
+		stub.P2PSend([]byte(buff), otherPeer)
 	}
-	fmt.Println("Waiting for receive...")
 	wg.Wait()
-	return shim.Success(nil)
+	fmt.Println("round took", time.Since(t1))
 }
 
 // Deletes an entity from state

@@ -242,7 +242,6 @@ func (h *Handler) sendMsg(msg *pb.ChaincodeMessage) {
 	var remotePeers []*comm.RemotePeer
 	p2pMsg := &pb.P2PMessage{}
 	proto.Unmarshal(msg.Payload, p2pMsg)
-	fmt.Println("Handler.SendMsg(", p2pMsg, ")")
 	for _, endpoint := range p2pMsg.Endpoints {
 		remotePeers = append(remotePeers, &comm.RemotePeer{Endpoint: endpoint})
 	}
