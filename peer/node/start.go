@@ -658,7 +658,7 @@ func registerChaincodeSupport(
 	}
 
 	gossip := service.GetGossipService()
-	p2p := &p2pMgr{g: gossip, queue: make(chan gossip2.ReceivedMessage, 100)}
+	p2p := &p2pMgr{g: gossip, incQueue: make(chan gossip2.ReceivedMessage, 100), outQueue: make(chan msgSend, 100)}
 	chaincodeSupport := chaincode.NewChaincodeSupport(p2p,
 		chaincode.GlobalConfig(),
 		ccEndpoint,
@@ -682,6 +682,7 @@ func registerChaincodeSupport(
 	p2p.ccs = chaincodeSupport
 	go p2p.listenToMessages()
 	go p2p.forwardMessages()
+	go p2p.sendMessages()
 	ipRegistry.ChaincodeSupport = chaincodeSupport
 	ccp := chaincode.NewProvider(chaincodeSupport)
 
@@ -934,15 +935,45 @@ func registerProverService(peerServer *comm.GRPCServer, aclProvider aclmgmt.ACLP
 }
 
 type p2pMgr struct {
-	g service.GossipService
-	ccs *chaincode.ChaincodeSupport
-	queue chan gossip2.ReceivedMessage
+	g        service.GossipService
+	ccs      *chaincode.ChaincodeSupport
+	incQueue chan gossip2.ReceivedMessage
+	outQueue chan msgSend
+}
+
+type msgSend struct {
+	msg *gossip2.GossipMessage
+	peers []*comm2.RemotePeer
 }
 
 func (p2p *p2pMgr) forwardMessages() {
-	for msg := range p2p.queue {
+	for msg := range p2p.incQueue {
 		p2p.ccs.ForwardMessage(msg.GetGossipMessage().GossipMessage, msg.GetConnectionInfo().Endpoint)
 	}
+}
+
+func (p2p *p2pMgr) sendMessages() {
+	for send := range p2p.outQueue {
+		p2p.sendMsg(send)
+	}
+}
+
+func (p2p *p2pMgr) sendMsg(send msgSend) {
+	sMsg, _ := send.msg.NoopSign()
+	t1 := time.Now()
+	p2p.g.SendByCriteria(sMsg, gossip3.SendCriteria{
+		Timeout: time.Second * 3,
+		MaxPeers: 100,
+		IsEligible: func(member discovery2.NetworkMember) bool {
+			for _, peer := range send.peers {
+				if peer.Endpoint == member.Endpoint || peer.Endpoint == member.InternalEndpoint {
+					return true
+				}
+			}
+			return false
+		},
+	})
+	fmt.Println("SendByCriteria took", time.Since(t1))
 }
 
 func (p2p *p2pMgr) listenToMessages() {
@@ -962,24 +993,13 @@ func (p2p *p2pMgr) listenToMessages() {
 	for msg := range fromPeers {
 		fmt.Println("Got message from", msg.GetConnectionInfo().Endpoint)
 		msg.Ack(nil)
-		p2p.queue <- msg
+		p2p.incQueue <- msg
 	}
 }
 
 func (p2p *p2pMgr) Send(msg *gossip2.GossipMessage, peers ...*comm2.RemotePeer) {
-	sMsg, _ := msg.NoopSign()
-	t1 := time.Now()
-	p2p.g.SendByCriteria(sMsg, gossip3.SendCriteria{
-		Timeout: time.Second * 3,
-		MaxPeers: 100,
-		IsEligible: func(member discovery2.NetworkMember) bool {
-			for _, peer := range peers {
-				if peer.Endpoint == member.Endpoint || peer.Endpoint == member.InternalEndpoint {
-					return true
-				}
-			}
-			return false
-		},
-	})
-	fmt.Println("SendByCriteria took", time.Since(t1))
+	p2p.outQueue <- msgSend{
+		peers: peers,
+		msg: msg,
+	}
 }

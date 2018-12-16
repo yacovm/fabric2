@@ -163,6 +163,8 @@ func (c *commImpl) createConnection(endpoint string, expectedPKIID common.PKIidT
 	dialOpts = append(dialOpts, c.secureDialOpts()...)
 	dialOpts = append(dialOpts, grpc.WithBlock())
 	dialOpts = append(dialOpts, c.opts...)
+	dialOpts = append(dialOpts, grpc.WithReadBufferSize(1024 * 1024 * 20))
+	dialOpts = append(dialOpts, grpc.WithWriteBufferSize(1024 * 1024 * 20))
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, c.dialTimeout)
 	defer cancel()

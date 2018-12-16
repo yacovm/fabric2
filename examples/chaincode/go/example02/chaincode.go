@@ -170,7 +170,7 @@ func round(stub shim.ChaincodeStubInterface, otherPeer string) {
 	go func() {
 		defer wg.Done()
 		var count int
-		for count < 100 {
+		for count < 10 {
 			msg, from := stub.P2PRecv()
 			if bytes.Equal([]byte{0}, msg) {
 				continue
@@ -180,9 +180,9 @@ func round(stub shim.ChaincodeStubInterface, otherPeer string) {
 		}
 	}()
 
-	// Send 100 messages to the other peer
-	for i := 0; i < 100; i++ {
-		buff := make([]byte, 1024 * 100)
+	// Send 10 messages to the other peer
+	for i := 0; i < 10; i++ {
+		buff := make([]byte, 1024 * 1024)
 		stub.P2PSend([]byte(buff), otherPeer)
 	}
 	wg.Wait()

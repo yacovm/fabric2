@@ -183,6 +183,10 @@ func (client *GRPCClient) NewConnection(address string, serverNameOverride strin
 		grpc.MaxCallRecvMsgSize(client.maxRecvMsgSize),
 		grpc.MaxCallSendMsgSize(client.maxSendMsgSize)))
 
+	dialOpts = append(dialOpts, grpc.WithReadBufferSize(1024 * 1024 * 20))
+	dialOpts = append(dialOpts, grpc.WithWriteBufferSize(1024 * 1024 * 20))
+
+
 	ctx, cancel := context.WithTimeout(context.Background(), client.timeout)
 	defer cancel()
 	conn, err := grpc.DialContext(ctx, address, dialOpts...)
