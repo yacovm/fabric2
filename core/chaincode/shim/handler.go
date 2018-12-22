@@ -10,11 +10,12 @@ import (
 	"fmt"
 	"sync"
 
+	"time"
+
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/gossip/util"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/pkg/errors"
-	"github.com/hyperledger/fabric/gossip/util"
-	"time"
 )
 
 type state string
@@ -168,7 +169,7 @@ func (handler *Handler) deleteChannel(channelID, txid string) {
 // NewChaincodeHandler returns a new instance of the shim side handler.
 func newChaincodeHandler(peerChatStream PeerChaincodeStream, chaincode Chaincode) *Handler {
 	v := &Handler{
-		fromPeers: util.NewPubSub(),
+		fromPeers:  util.NewPubSub(),
 		ChatStream: peerChatStream,
 		cc:         chaincode,
 	}
@@ -274,7 +275,24 @@ func (handler *Handler) handleTransaction(msg *pb.ChaincodeMessage, errc chan er
 		if nextStateMsg = errFunc(err, stub.chaincodeEvent, "[%s] Transaction execution failed. Sending %s", shorttxid(msg.Txid), pb.ChaincodeMessage_ERROR.String()); nextStateMsg != nil {
 			return
 		}
+
+		subscriptionTransactionChan := make(chan struct{})
+		go func() {
+			for {
+				select {
+				case <-subscriptionTransactionChan:
+					return
+				case msg := <-stub.sub.ListenChannel():
+					p2pMsg := msg.(*pb.P2PMessage)
+					payload, from := p2pMsg.Payload, p2pMsg.Endpoints[0]
+					stub.msgFrom(from, payload)
+				}
+			}
+		}()
+
 		res := handler.cc.Invoke(stub)
+		close(subscriptionTransactionChan)
+
 
 		// Endorser will handle error contained in Response.
 		resBytes, err := proto.Marshal(&res)

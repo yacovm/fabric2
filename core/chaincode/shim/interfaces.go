@@ -32,7 +32,7 @@ type ChaincodeStubInterface interface {
 
 	P2PSend(payload []byte, to ... string)
 
-	P2PRecv() (payload []byte, from string)
+	P2PRecv(from string) (payload []byte)
 
 	// GetArgs returns the arguments intended for the chaincode Init and Invoke
 	// as an array of byte arrays.

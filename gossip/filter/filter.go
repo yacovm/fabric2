@@ -12,7 +12,6 @@ import (
 	"github.com/hyperledger/fabric/gossip/comm"
 	"github.com/hyperledger/fabric/gossip/discovery"
 	"github.com/hyperledger/fabric/gossip/util"
-	"fmt"
 )
 
 // RoutingFilter defines a predicate on a NetworkMember
@@ -55,7 +54,6 @@ func SelectPeers(k int, peerPool []discovery.NetworkMember, filter RoutingFilter
 		peer := peerPool[index]
 		// For each one, check if it is a worthy candidate to be selected
 		if !filter(peer) {
-			fmt.Println("peer", peer, "doesn't match filter.")
 			continue
 		}
 		p := &comm.RemotePeer{PKIID: peer.PKIid, Endpoint: peer.PreferredEndpoint()}

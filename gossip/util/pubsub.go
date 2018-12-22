@@ -35,6 +35,8 @@ type Subscription interface {
 	// to the subscription, or an error if the
 	// subscription's TTL passed
 	Listen() (interface{}, error)
+
+	ListenChannel() <- chan interface{}
 }
 
 type subscription struct {
@@ -53,6 +55,10 @@ func (s *subscription) Listen() (interface{}, error) {
 	case item := <-s.c:
 		return item, nil
 	}
+}
+
+func (s *subscription) ListenChannel() <- chan interface{} {
+	return s.c
 }
 
 // NewPubSub creates a new PubSub with an empty

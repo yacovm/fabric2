@@ -947,8 +947,13 @@ type msgSend struct {
 }
 
 func (p2p *p2pMgr) forwardMessages() {
+	var membersByID map[string]discovery2.NetworkMember
 	for msg := range p2p.incQueue {
-		p2p.ccs.ForwardMessage(msg.GetGossipMessage().GossipMessage, msg.GetConnectionInfo().Endpoint)
+		if membersByID == nil {
+			membersByID = discovery2.Members(p2p.g.Peers()).ByID()
+		}
+		from := membersByID[string(msg.GetConnectionInfo().ID)].PreferredEndpoint()
+		p2p.ccs.ForwardMessage(msg.GetGossipMessage().GossipMessage, from)
 	}
 }
 

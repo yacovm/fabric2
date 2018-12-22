@@ -28,7 +28,7 @@ import (
 	"github.com/hyperledger/fabric/protos/ledger/queryresult"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/hyperledger/fabric/protos/utils"
-	logging "github.com/op/go-logging"
+	"github.com/op/go-logging"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
@@ -52,7 +52,6 @@ const (
 // ChaincodeStub is an object passed to chaincode for shim side handling of
 // APIs.
 type ChaincodeStub struct {
-	sub util.Subscription
 	TxID                       string
 	ChannelId                  string
 	chaincodeEvent             *pb.ChaincodeEvent
@@ -67,7 +66,10 @@ type ChaincodeStub struct {
 	transient map[string][]byte
 	binding   []byte
 
-	decorations map[string][]byte
+	decorations            map[string][]byte
+	sub                    util.Subscription
+	messagesFromSourceLock sync.RWMutex
+	messagesFromSources    map[string]chan []byte
 }
 
 // Peer address derived from command line or env var
@@ -401,6 +403,7 @@ func (stub *ChaincodeStub) init(handler *Handler, channelId string, txid string,
 	stub.validationParameterMetakey = pb.MetaDataKeys_VALIDATION_PARAMETER.String()
 
 	stub.sub = stub.handler.fromPeers.Subscribe(stub.TxID, time.Hour)
+	stub.messagesFromSources = make(map[string]chan[]byte)
 
 	// TODO: sanity check: verify that every call to init with a nil
 	// signedProposal is a legitimate one, meaning it is an internal call
@@ -453,12 +456,39 @@ func (stub *ChaincodeStub) InvokeChaincode(chaincodeName string, args [][]byte, 
 	return stub.handler.handleInvokeChaincode(chaincodeName, args, stub.ChannelId, stub.TxID)
 }
 
-func (stub *ChaincodeStub) P2PRecv() (payload []byte, from string) {
-	msg, _ := stub.sub.Listen()
-	p2pMsg := msg.(*pb.P2PMessage)
-	payload, from = p2pMsg.Payload, p2pMsg.Endpoints[0]
-	fmt.Println("Got", len(payload), " bytes from", from)
-	return
+func (stub *ChaincodeStub) msgFrom(from string, payload []byte) {
+	fmt.Println("msgFrom: Got", len(payload), "bytes from", from)
+	 msgChan := stub.getOrCreateMsgChan(from)
+	 if len(msgChan) == cap(msgChan) {
+	 	fmt.Printf("ERROR: message chan is at its full capacity! (%d) dropping message of size %d bytes\n",
+	 		cap(msgChan), len(payload))
+	 	return
+	 }
+	 msgChan <- payload
+}
+
+func (stub *ChaincodeStub) getOrCreateMsgChan(from string) chan []byte {
+	stub.messagesFromSourceLock.RLock()
+	msgChan := stub.messagesFromSources[from]
+	stub.messagesFromSourceLock.RUnlock()
+	if msgChan != nil {
+		return msgChan
+	}
+	stub.messagesFromSourceLock.Lock()
+	defer stub.messagesFromSourceLock.Unlock()
+	msgChan = stub.messagesFromSources[from]
+	if msgChan == nil {
+		msgChan = make(chan []byte, 10000)
+		stub.messagesFromSources[from] = msgChan
+	}
+	return msgChan
+}
+
+func (stub *ChaincodeStub) P2PRecv(from string) ([]byte) {
+	fmt.Println("P2PRecv: from=", from)
+	payload := <- stub.getOrCreateMsgChan(from)
+	fmt.Println("P2PRecv: Got message of length", len(payload))
+	return payload
 }
 
 func (stub *ChaincodeStub) P2PSend(payload []byte, peers ... string) {

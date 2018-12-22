@@ -138,17 +138,16 @@ func (t *SimpleChaincode) invoke(stub shim.ChaincodeStubInterface, args []string
 	}
 	fmt.Println("Sending to", otherPeer)
 
-
 	var synchronized uint64
 	go func() {
 		for atomic.LoadUint64(&synchronized) == 0 {
 			stub.P2PSend([]byte{0}, otherPeer)
-			time.Sleep(time.Millisecond * 10)
+			time.Sleep(time.Millisecond * 100)
 		}
 	}()
-	stub.P2PRecv()
+	stub.P2PRecv(otherPeer)
 	stub.P2PSend([]byte{0}, otherPeer)
-	stub.P2PRecv()
+	stub.P2PRecv(otherPeer)
 	atomic.StoreUint64(&synchronized, 1)
 
 
@@ -171,12 +170,12 @@ func round(stub shim.ChaincodeStubInterface, otherPeer string) {
 		defer wg.Done()
 		var count int
 		for count < 10 {
-			msg, from := stub.P2PRecv()
+			msg := stub.P2PRecv(otherPeer)
 			if bytes.Equal([]byte{0}, msg) {
 				continue
 			}
 			count++
-			fmt.Println("Got message of size", len(msg), "from", from)
+			fmt.Println("Got message of size", len(msg), "from", otherPeer)
 		}
 	}()
 
