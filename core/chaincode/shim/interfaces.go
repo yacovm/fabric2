@@ -10,6 +10,8 @@ import (
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/hyperledger/fabric/protos/ledger/queryresult"
 	pb "github.com/hyperledger/fabric/protos/peer"
+	"github.com/hyperledger/fabric/protos/msp"
+	"github.com/golang/protobuf/proto"
 )
 
 // Chaincode interface must be implemented by all chaincodes. The fabric runs
@@ -24,6 +26,14 @@ type Chaincode interface {
 	// Updated state variables are not committed to the ledger until the
 	// transaction is committed.
 	Invoke(stub ChaincodeStubInterface) pb.Response
+}
+
+type PeerIdentity []byte
+
+func (pid PeerIdentity) MSPID() string {
+	sID := &msp.SerializedIdentity{}
+	proto.Unmarshal(pid, sID)
+	return sID.Mspid
 }
 
 // ChaincodeStubInterface is used by deployable chaincode apps to access and
